@@ -1,10 +1,15 @@
 /*** includes ***/
+#define _DEFAULT_SOURCE
+#define _BSD_SOURCE
+#define _GNU_SOURCE
+
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/types.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -13,6 +18,7 @@
 #define ESCAPE '\x1b'
 
 enum COMMANDS {
+	EXIT =		9999,
 	MOVE_LEFT =	1000,
 	MOVE_DOWN =	1001,
 	MOVE_UP =	1002,
@@ -22,15 +28,24 @@ enum COMMANDS {
 };
 
 /*** data ***/
-struct editorConfig {
+typedef struct uiRow {
+	int length;
+	char *characters;
+} uiRow;
+
+struct uiConfiguration {
 	int cursorRow;
 	int cursorColumn;
+	int uiOffsetRow;
+	int uiOffsetColumn;
 	int screenRows;
 	int screenColumns;
+	int uiRowsAmount;
+	uiRow *uiRow;
 	struct termios original_termios;
 };
 
-struct editorConfig config;
+struct uiConfiguration config;
 
 /*** terminal ***/
 void die(const char *string) {
@@ -42,12 +57,14 @@ void die(const char *string) {
 }
 
 void disableRawMode() {
+	write(STDOUT_FILENO, "\x1b[?7h", 6);				/* Disables Auto-wrap from terminal */
 	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &config.original_termios) == -1) {
 		die("tcsetattr");
 	}
 }
 
 void enableRawMode() {
+	write(STDOUT_FILENO, "\x1b[?7l", 6);				/* Disables Auto-wrap from terminal */
 	if (tcgetattr(STDIN_FILENO, &config.original_termios) == -1) {
 		die("tcgetattr");
 	}
@@ -62,7 +79,7 @@ void enableRawMode() {
 
 	raw.c_oflag &= ~(OPOST);	/* Disables post-processing output  */
 
-	raw.c_cflag |= ~(CS8);		/* bit mask Character-size = 8 per byte */
+	raw.c_cflag |= CS8;		/* bit mask Character-size = 8 per byte */
 
 	raw.c_lflag &= ~(ECHO);		/* Disables printing */
 	raw.c_lflag &= ~(ICANON);	/* Disables read byte by byte instead of line by line */
@@ -85,6 +102,7 @@ int uiReadKey() {
 	}
 
 	switch (key) {
+		case 'q': return EXIT;
 		case 'h': return MOVE_LEFT;
 		case 'j': return MOVE_DOWN;
 		case 'k': return MOVE_UP;
@@ -145,6 +163,45 @@ int getScreenSize(int *rows, int *cols) {
 	return 0;
 }
 
+/*** row operations ***/
+void uiAppendRow(char *string, size_t length) {
+	config.uiRow = realloc(config.uiRow, sizeof(uiRow) * (config.uiRowsAmount + 1));
+
+	int index = config.uiRowsAmount;
+	config.uiRow[index].length = length;
+	config.uiRow[index].characters = malloc(length + 1);
+	memcpy(config.uiRow[index].characters, string, length);
+	config.uiRow[index].characters[length] = '\0';
+	config.uiRowsAmount++;
+}
+
+/*** music management ***/
+void uiOpen() {
+	FILE *filePipe = popen("mpc listall", "r");
+	if (!filePipe) die("popen");
+
+	char *line = NULL;
+	size_t lineCap = 0;
+	ssize_t lineLength;
+
+	lineLength = getline(&line, &lineCap, filePipe);
+	if (lineLength == -1) {
+		free(line);
+		pclose(filePipe);
+		return;
+	}
+
+	while ((lineLength = getline(&line, &lineCap, filePipe)) != -1) {					/* Read until EOF */
+		while (lineLength > 0 && (line[lineLength - 1] == '\n' || line[lineLength - 1] == '\r')) {	/* Removes Carriage Return */
+			lineLength--;
+		}
+		uiAppendRow(line, lineLength);
+	}
+
+	free(line);
+	pclose(filePipe);
+}
+
 /*** append buffer ***/
 struct stringBuffer {
 	char *characters;
@@ -167,19 +224,54 @@ void stringBufferFree(struct stringBuffer *buffer) {
 }
 
 /*** output ***/
-void uiDrawRows(struct stringBuffer *buffer) {
-	int y;
-	for (y = 0; y < config.screenRows; y++) {
-		stringBufferConcat(buffer, "~", 2);
+void uiScroll() {
+	/* Vertical Scroll */
+	if (config.cursorRow < config.uiOffsetRow) {						/* Top of window? scroll up */
+		config.uiOffsetRow = config.cursorRow;
+	}
+	if (config.cursorRow >= config.uiOffsetRow + config.screenRows) {			/* Bottom of window? scroll down */
+		config.uiOffsetRow = config.cursorRow - config.screenRows + 1;
+	}
+	/* Horizontal Scroll */
+	if (config.cursorColumn < config.uiOffsetColumn) {					/* Top of window? scroll up */
+		config.uiOffsetColumn = config.cursorColumn;
+	}
+	if (config.cursorColumn >= config.uiOffsetColumn + config.screenColumns) {		/* Bottom of window? scroll down */
+		config.uiOffsetColumn = config.cursorColumn - config.screenColumns + 1;
+	}
+}
 
-		stringBufferConcat(buffer, "\x1b[K", 3);	/* Erase in line */
-		if (y < config.screenRows -1) {
+void uiWriteLineEmpty(struct stringBuffer *buffer) {
+	stringBufferConcat(buffer, "~", 1);
+}
+
+void uiWriteLine(struct stringBuffer *buffer, int index) {
+	int length = config.uiRow[index].length - config.uiOffsetColumn;	/* Offset for horziontal Scrolling */
+	if (length < 0) length = 0;
+	if (length > config.screenColumns) length = config.screenColumns;
+	stringBufferConcat(buffer, "  ", 2);					/* Padding */
+	stringBufferConcat(buffer, &config.uiRow[index].characters[config.uiOffsetColumn], length);
+}
+
+void uiDrawRows(struct stringBuffer *buffer) {					/* TODO Change thename of variables, it's awful */
+	int currentRow;
+	for (currentRow = 0; currentRow < config.screenRows; currentRow++) {
+		int visibleRow = currentRow + config.uiOffsetRow;
+		if (visibleRow >= config.uiRowsAmount) {
+			uiWriteLineEmpty(buffer);
+		} else {
+			uiWriteLine(buffer, visibleRow);
+		}
+		stringBufferConcat(buffer, "\x1b[K", 3);			/* Erase after cursor */
+		if (currentRow < config.screenRows -1) {
 			stringBufferConcat(buffer, "\r\n", 2);
 		}
 	}
 }
 
 void uiRefreshScreen() {
+	uiScroll();
+
 	struct stringBuffer bufferScreen = STRING_BUFFER_INITIAL;
 
 	stringBufferConcat(&bufferScreen, "\x1b[?25l", 6);		/* Hides cursor */
@@ -188,7 +280,7 @@ void uiRefreshScreen() {
 	uiDrawRows(&bufferScreen);
 
 	char bufferPosition[32];
-	snprintf(bufferPosition, sizeof(bufferPosition), "\x1b[%d;%dH", config.cursorRow + 1, config.cursorColumn + 1);
+	snprintf(bufferPosition, sizeof(bufferPosition), "\x1b[%d;%dH", (config.cursorRow - config.uiOffsetRow) + 1, (config.cursorColumn - config.uiOffsetColumn) + 1);
 	stringBufferConcat(&bufferScreen, bufferPosition, strlen(bufferPosition));
 
 	stringBufferConcat(&bufferScreen, "\x1b[?25h", 6);		/* Hides cursor */
@@ -201,16 +293,22 @@ void uiRefreshScreen() {
 void uiMoveCursor(int key) {
 	switch (key) {
 		case MOVE_LEFT:
-			if (config.cursorColumn > 0) config.cursorColumn--;
+			if (config.cursorColumn > 0) {
+				config.cursorColumn--;
+			}
 			break;
 		case MOVE_DOWN:
-			if (config.cursorRow < config.screenRows) config.cursorRow++;
+			if (config.cursorRow < config.uiRowsAmount) {
+				config.cursorRow++;
+			}
 			break;
 		case MOVE_UP:
-			if (config.cursorRow > 0) config.cursorRow--;
+			if (config.cursorRow > 0) {
+				config.cursorRow--;
+			}
 			break;
 		case MOVE_RIGHT:
-			if (config.cursorColumn < config.screenColumns) config.cursorColumn++;
+			config.cursorColumn++;
 			break;
 	}
 }
@@ -234,7 +332,7 @@ void uiMovePage(int key) {
 char uiProcessKeyPress() {
 	int key = uiReadKey();
 	switch (key) {
-		case CTRL_KEY('q'):
+		case EXIT:
 			exit(0);
 			break;
 		case MOVE_LEFT:
@@ -254,13 +352,18 @@ char uiProcessKeyPress() {
 /*** init ***/
 void initUI() {
 	config.cursorRow = 0;
-	config.cursorColumn = 1;
+	config.cursorColumn = 2;
+	config.uiOffsetRow = 0;
+	config.uiOffsetColumn = 0;
+	config.uiRowsAmount = 0;
+	config.uiRow = NULL;
 	if (getScreenSize(&config.screenRows, &config.screenColumns) == -1) die("getScreenSize");
 }
 
 int main() {
 	enableRawMode();
 	initUI();
+	uiOpen();
 
 	while (1) {
 		uiRefreshScreen();
