@@ -18,13 +18,14 @@
 #define ESCAPE '\x1b'
 
 enum COMMANDS {
-	EXIT =		9999,
-	MOVE_LEFT =	1000,
-	MOVE_DOWN =	1001,
-	MOVE_UP =	1002,
-	MOVE_RIGHT =	1003,
-	MOVE_PAGE_UP =	1004,
-	MOVE_PAGE_DOWN =1005,
+	EXIT =		 9999,
+	MOVE_LEFT =	 1000,
+	MOVE_DOWN =	 1001,
+	MOVE_UP =	 1002,
+	MOVE_RIGHT =	 1003,
+	MOVE_PAGE_UP =	 1004,
+	MOVE_PAGE_DOWN = 1005,
+	SONG_PLAY =	 1006,
 };
 
 /*** data ***/
@@ -109,6 +110,7 @@ int uiReadKey() {
 		case 'l': return MOVE_RIGHT;
 		case CTRL_KEY('b'): return MOVE_PAGE_UP;
 		case CTRL_KEY('f'): return MOVE_PAGE_DOWN;
+		case 'p': return SONG_PLAY;
 	}
 
 	/* If is a escape sequence */
@@ -167,11 +169,11 @@ int getScreenSize(int *rows, int *cols) {
 void uiAppendRow(char *string, size_t length) {
 	config.uiRow = realloc(config.uiRow, sizeof(uiRow) * (config.uiRowsAmount + 1));
 
-	int index = config.uiRowsAmount;
-	config.uiRow[index].length = length;
-	config.uiRow[index].characters = malloc(length + 1);
-	memcpy(config.uiRow[index].characters, string, length);
-	config.uiRow[index].characters[length] = '\0';
+	int currentRow = config.uiRowsAmount;
+	config.uiRow[currentRow].length = length;
+	config.uiRow[currentRow].characters = malloc(length + 1);
+	memcpy(config.uiRow[currentRow].characters, string, length);
+	config.uiRow[currentRow].characters[length] = '\0';
 	config.uiRowsAmount++;
 }
 
@@ -183,13 +185,6 @@ void uiOpen() {
 	char *line = NULL;
 	size_t lineCap = 0;
 	ssize_t lineLength;
-
-	lineLength = getline(&line, &lineCap, filePipe);
-	if (lineLength == -1) {
-		free(line);
-		pclose(filePipe);
-		return;
-	}
 
 	while ((lineLength = getline(&line, &lineCap, filePipe)) != -1) {					/* Read until EOF */
 		while (lineLength > 0 && (line[lineLength - 1] == '\n' || line[lineLength - 1] == '\r')) {	/* Removes Carriage Return */
@@ -329,6 +324,22 @@ void uiMovePage(int key) {
 	}
 }
 
+void songPlay() {
+	int songIndex = config.cursorRow + 1;
+	char songIndexString[9];
+	sprintf(songIndexString, "%d", songIndex);
+
+	struct stringBuffer bufferCommand = STRING_BUFFER_INITIAL;
+	stringBufferConcat(&bufferCommand, "mpc play ", 9);		/* Hides cursor */
+	stringBufferConcat(&bufferCommand, songIndexString, 9);		/* Hides cursor */
+
+	FILE *filePipe = popen(bufferCommand.characters, "r");
+
+	stringBufferFree(&bufferCommand);
+	if (!filePipe) die("popen");
+	pclose(filePipe);
+}
+
 char uiProcessKeyPress() {
 	int key = uiReadKey();
 	switch (key) {
@@ -344,6 +355,9 @@ char uiProcessKeyPress() {
 		case MOVE_PAGE_DOWN:
 		case MOVE_PAGE_UP:
 			uiMovePage(key);
+			break;
+		case SONG_PLAY:
+			songPlay();
 			break;
 	}
 	return key;
