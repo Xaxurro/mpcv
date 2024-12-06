@@ -35,12 +35,12 @@ typedef struct uiRow {
 } uiRow;
 
 struct uiConfiguration {
-	int cursorRow;
-	int cursorColumn;
-	int uiOffsetRow;
+	int cursorRow;		/* cursor position row */
+	int cursorColumn;	/* cursor position column */
+	int uiOffsetRow;	
 	int uiOffsetColumn;
-	int screenRows;
-	int screenColumns;
+	int screenRows;		/* Rows that the screen has */
+	int screenColumns;	/* Columns that the screen has */
 	int uiRowsAmount;
 	uiRow *uiRow;
 	struct termios original_termios;
@@ -248,7 +248,26 @@ void uiWriteLine(struct stringBuffer *buffer, int index) {
 	stringBufferConcat(buffer, &config.uiRow[index].characters[config.uiOffsetColumn], length);
 }
 
-void uiDrawRows(struct stringBuffer *buffer) {					/* TODO Change thename of variables, it's awful */
+void uiWriteStatusBar(struct stringBuffer *buffer) {
+	stringBufferConcat(buffer, "\x1b[7m", 4);	/* Invert Colors */
+
+	char status[80];
+
+	int length = snprintf(status, sizeof(status), "%d songs", config.uiRowsAmount);
+	if (length > config.screenColumns) {
+		length = config.screenColumns;
+	}
+	stringBufferConcat(buffer, status, length);
+
+	while(length < config.screenColumns) {
+		stringBufferConcat(buffer, " ", 1);
+		length++;
+	}
+
+	stringBufferConcat(buffer, "\x1b[m", 4);	/* Return Colors back to normal */
+}
+
+void uiWriteRows(struct stringBuffer *buffer) {					/* TODO Change thename of variables, it's awful */
 	int currentRow;
 	for (currentRow = 0; currentRow < config.screenRows; currentRow++) {
 		int visibleRow = currentRow + config.uiOffsetRow;
@@ -258,9 +277,7 @@ void uiDrawRows(struct stringBuffer *buffer) {					/* TODO Change thename of var
 			uiWriteLine(buffer, visibleRow);
 		}
 		stringBufferConcat(buffer, "\x1b[K", 3);			/* Erase after cursor */
-		if (currentRow < config.screenRows -1) {
-			stringBufferConcat(buffer, "\r\n", 2);
-		}
+		stringBufferConcat(buffer, "\r\n", 2);				/* write newline */
 	}
 }
 
@@ -272,7 +289,8 @@ void uiRefreshScreen() {
 	stringBufferConcat(&bufferScreen, "\x1b[?25l", 6);		/* Hides cursor */
 	stringBufferConcat(&bufferScreen, "\x1b[H", 3);			/* Position the cursor */
 
-	uiDrawRows(&bufferScreen);
+	uiWriteRows(&bufferScreen);
+	uiWriteStatusBar(&bufferScreen);
 
 	char bufferPosition[32];
 	snprintf(bufferPosition, sizeof(bufferPosition), "\x1b[%d;%dH", (config.cursorRow - config.uiOffsetRow) + 1, (config.cursorColumn - config.uiOffsetColumn) + 1);
@@ -372,6 +390,7 @@ void initUI() {
 	config.uiRowsAmount = 0;
 	config.uiRow = NULL;
 	if (getScreenSize(&config.screenRows, &config.screenColumns) == -1) die("getScreenSize");
+	config.screenRows -= 1;
 }
 
 int main() {
