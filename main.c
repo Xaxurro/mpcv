@@ -34,19 +34,19 @@ typedef struct uiRow {
 	char *characters;
 } uiRow;
 
-struct uiConfiguration {
+struct uiDataStruct {
 	int cursorRow;		/* cursor position row */
 	int cursorColumn;	/* cursor position column */
 	int uiOffsetRow;	
 	int uiOffsetColumn;
 	int screenRows;		/* Rows that the screen has */
 	int screenColumns;	/* Columns that the screen has */
-	int uiRowsAmount;
+	int amountRows;
 	uiRow *uiRow;
-	struct termios original_termios;
+	struct termios originalTermios;
 };
 
-struct uiConfiguration config;
+struct uiDataStruct uiData;
 
 /*** terminal ***/
 void die(const char *string) {
@@ -59,19 +59,19 @@ void die(const char *string) {
 
 void disableRawMode() {
 	write(STDOUT_FILENO, "\x1b[?7h", 6);				/* Disables Auto-wrap from terminal */
-	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &config.original_termios) == -1) {
+	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &uiData.originalTermios) == -1) {
 		die("tcsetattr");
 	}
 }
 
 void enableRawMode() {
 	write(STDOUT_FILENO, "\x1b[?7l", 6);				/* Disables Auto-wrap from terminal */
-	if (tcgetattr(STDIN_FILENO, &config.original_termios) == -1) {
+	if (tcgetattr(STDIN_FILENO, &uiData.originalTermios) == -1) {
 		die("tcgetattr");
 	}
 	atexit(disableRawMode);
 
-	struct termios raw = config.original_termios;
+	struct termios raw = uiData.originalTermios;
 	raw.c_iflag &= ~(BRKINT);	/* Disables break condition -> SIGINT  */
 	raw.c_iflag &= ~(INPCK);	/* Enables parity checking  */
 	raw.c_iflag &= ~(ISTRIP);	/* Disables stripping the 8th bit byu default  */
@@ -167,14 +167,14 @@ int getScreenSize(int *rows, int *cols) {
 
 /*** row operations ***/
 void uiAppendRow(char *string, size_t length) {
-	config.uiRow = realloc(config.uiRow, sizeof(uiRow) * (config.uiRowsAmount + 1));
+	uiData.uiRow = realloc(uiData.uiRow, sizeof(uiRow) * (uiData.amountRows + 1));
 
-	int currentRow = config.uiRowsAmount;
-	config.uiRow[currentRow].length = length;
-	config.uiRow[currentRow].characters = malloc(length + 1);
-	memcpy(config.uiRow[currentRow].characters, string, length);
-	config.uiRow[currentRow].characters[length] = '\0';
-	config.uiRowsAmount++;
+	int currentRow = uiData.amountRows;
+	uiData.uiRow[currentRow].length = length;
+	uiData.uiRow[currentRow].characters = malloc(length + 1);
+	memcpy(uiData.uiRow[currentRow].characters, string, length);
+	uiData.uiRow[currentRow].characters[length] = '\0';
+	uiData.amountRows++;
 }
 
 /*** music management ***/
@@ -221,18 +221,18 @@ void stringBufferFree(struct stringBuffer *buffer) {
 /*** output ***/
 void uiScroll() {
 	/* Vertical Scroll */
-	if (config.cursorRow < config.uiOffsetRow) {						/* Top of window? scroll up */
-		config.uiOffsetRow = config.cursorRow;
+	if (uiData.cursorRow < uiData.uiOffsetRow) {						/* Top of window? scroll up */
+		uiData.uiOffsetRow = uiData.cursorRow;
 	}
-	if (config.cursorRow >= config.uiOffsetRow + config.screenRows) {			/* Bottom of window? scroll down */
-		config.uiOffsetRow = config.cursorRow - config.screenRows + 1;
+	if (uiData.cursorRow >= uiData.uiOffsetRow + uiData.screenRows) {			/* Bottom of window? scroll down */
+		uiData.uiOffsetRow = uiData.cursorRow - uiData.screenRows + 1;
 	}
 	/* Horizontal Scroll */
-	if (config.cursorColumn < config.uiOffsetColumn) {					/* Top of window? scroll up */
-		config.uiOffsetColumn = config.cursorColumn;
+	if (uiData.cursorColumn < uiData.uiOffsetColumn) {					/* Top of window? scroll up */
+		uiData.uiOffsetColumn = uiData.cursorColumn;
 	}
-	if (config.cursorColumn >= config.uiOffsetColumn + config.screenColumns) {		/* Bottom of window? scroll down */
-		config.uiOffsetColumn = config.cursorColumn - config.screenColumns + 1;
+	if (uiData.cursorColumn >= uiData.uiOffsetColumn + uiData.screenColumns) {		/* Bottom of window? scroll down */
+		uiData.uiOffsetColumn = uiData.cursorColumn - uiData.screenColumns + 1;
 	}
 }
 
@@ -241,11 +241,11 @@ void uiWriteLineEmpty(struct stringBuffer *buffer) {
 }
 
 void uiWriteLine(struct stringBuffer *buffer, int index) {
-	int length = config.uiRow[index].length - config.uiOffsetColumn;	/* Offset for horziontal Scrolling */
+	int length = uiData.uiRow[index].length - uiData.uiOffsetColumn;	/* Offset for horziontal Scrolling */
 	if (length < 0) length = 0;
-	if (length > config.screenColumns) length = config.screenColumns;
+	if (length > uiData.screenColumns) length = uiData.screenColumns;
 	stringBufferConcat(buffer, "  ", 2);					/* Padding */
-	stringBufferConcat(buffer, &config.uiRow[index].characters[config.uiOffsetColumn], length);
+	stringBufferConcat(buffer, &uiData.uiRow[index].characters[uiData.uiOffsetColumn], length);
 }
 
 void uiWriteStatusBar(struct stringBuffer *buffer) {
@@ -253,13 +253,13 @@ void uiWriteStatusBar(struct stringBuffer *buffer) {
 
 	char status[80];
 
-	int length = snprintf(status, sizeof(status), "%d songs", config.uiRowsAmount);
-	if (length > config.screenColumns) {
-		length = config.screenColumns;
+	int length = snprintf(status, sizeof(status), "%d songs", uiData.amountRows);
+	if (length > uiData.screenColumns) {
+		length = uiData.screenColumns;
 	}
 	stringBufferConcat(buffer, status, length);
 
-	while(length < config.screenColumns) {
+	while(length < uiData.screenColumns) {
 		stringBufferConcat(buffer, " ", 1);
 		length++;
 	}
@@ -269,9 +269,9 @@ void uiWriteStatusBar(struct stringBuffer *buffer) {
 
 void uiWriteRows(struct stringBuffer *buffer) {					/* TODO Change thename of variables, it's awful */
 	int currentRow;
-	for (currentRow = 0; currentRow < config.screenRows; currentRow++) {
-		int visibleRow = currentRow + config.uiOffsetRow;
-		if (visibleRow >= config.uiRowsAmount) {
+	for (currentRow = 0; currentRow < uiData.screenRows; currentRow++) {
+		int visibleRow = currentRow + uiData.uiOffsetRow;
+		if (visibleRow >= uiData.amountRows) {
 			uiWriteLineEmpty(buffer);
 		} else {
 			uiWriteLine(buffer, visibleRow);
@@ -293,7 +293,7 @@ void uiRefreshScreen() {
 	uiWriteStatusBar(&bufferScreen);
 
 	char bufferPosition[32];
-	snprintf(bufferPosition, sizeof(bufferPosition), "\x1b[%d;%dH", (config.cursorRow - config.uiOffsetRow) + 1, (config.cursorColumn - config.uiOffsetColumn) + 1);
+	snprintf(bufferPosition, sizeof(bufferPosition), "\x1b[%d;%dH", (uiData.cursorRow - uiData.uiOffsetRow) + 1, (uiData.cursorColumn - uiData.uiOffsetColumn) + 1);
 	stringBufferConcat(&bufferScreen, bufferPosition, strlen(bufferPosition));
 
 	stringBufferConcat(&bufferScreen, "\x1b[?25h", 6);		/* Hides cursor */
@@ -306,28 +306,28 @@ void uiRefreshScreen() {
 void uiMoveCursor(int key) {
 	switch (key) {
 		case MOVE_LEFT:
-			if (config.cursorColumn > 0) {
-				config.cursorColumn--;
+			if (uiData.cursorColumn > 0) {
+				uiData.cursorColumn--;
 			}
 			break;
 		case MOVE_DOWN:
-			if (config.cursorRow < config.uiRowsAmount) {
-				config.cursorRow++;
+			if (uiData.cursorRow < uiData.amountRows) {
+				uiData.cursorRow++;
 			}
 			break;
 		case MOVE_UP:
-			if (config.cursorRow > 0) {
-				config.cursorRow--;
+			if (uiData.cursorRow > 0) {
+				uiData.cursorRow--;
 			}
 			break;
 		case MOVE_RIGHT:
-			config.cursorColumn++;
+			uiData.cursorColumn++;
 			break;
 	}
 }
 
 void uiMovePage(int key) {
-	int rows = config.screenRows;
+	int rows = uiData.screenRows;
 	switch(key) {
 		case MOVE_PAGE_DOWN:
 			while(rows--) {
@@ -343,7 +343,7 @@ void uiMovePage(int key) {
 }
 
 void songPlay() {
-	int songIndex = config.cursorRow + 1;
+	int songIndex = uiData.cursorRow + 1;
 	char songIndexString[12];
 	sprintf(songIndexString, "%d", songIndex);
 
@@ -383,14 +383,14 @@ char uiProcessKeyPress() {
 
 /*** init ***/
 void initUI() {
-	config.cursorRow = 0;
-	config.cursorColumn = 2;
-	config.uiOffsetRow = 0;
-	config.uiOffsetColumn = 0;
-	config.uiRowsAmount = 0;
-	config.uiRow = NULL;
-	if (getScreenSize(&config.screenRows, &config.screenColumns) == -1) die("getScreenSize");
-	config.screenRows -= 1;
+	uiData.cursorRow = 0;
+	uiData.cursorColumn = 2;
+	uiData.uiOffsetRow = 0;
+	uiData.uiOffsetColumn = 0;
+	uiData.amountRows = 0;
+	uiData.uiRow = NULL;
+	if (getScreenSize(&uiData.screenRows, &uiData.screenColumns) == -1) die("getScreenSize");
+	uiData.screenRows -= 1;
 }
 
 int main() {
