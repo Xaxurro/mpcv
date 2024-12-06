@@ -6,11 +6,13 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 /*** defines ***/
@@ -43,6 +45,8 @@ struct uiDataStruct {
 	int screenColumns;	/* Columns that the screen has */
 	int amountRows;
 	uiRow *uiRow;
+	char statusMessage[80];
+	time_t statusMessageTime;	/* Timestamp status message */
 	struct termios originalTermios;
 };
 
@@ -265,6 +269,16 @@ void uiWriteStatusBar(struct stringBuffer *buffer) {
 	}
 
 	stringBufferConcat(buffer, "\x1b[m", 4);	/* Return Colors back to normal */
+	stringBufferConcat(buffer, "\r\n", 2);		/* Return Colors back to normal */
+}
+
+void uiWriteMessageBar(struct stringBuffer *buffer) {
+	stringBufferConcat(buffer, "\x1b[K]", 3);	/* Clear -ONLY- the message bar */
+	int messageLength = strlen(uiData.statusMessage);
+	if (messageLength > uiData.screenColumns) messageLength = uiData.screenColumns;
+	if (messageLength && time(NULL) - uiData.statusMessageTime < 5) {
+		stringBufferConcat(buffer, uiData.statusMessage, messageLength);
+	}
 }
 
 void uiWriteRows(struct stringBuffer *buffer) {					/* TODO Change thename of variables, it's awful */
@@ -291,6 +305,7 @@ void uiRefreshScreen() {
 
 	uiWriteRows(&bufferScreen);
 	uiWriteStatusBar(&bufferScreen);
+	uiWriteMessageBar(&bufferScreen);
 
 	char bufferPosition[32];
 	snprintf(bufferPosition, sizeof(bufferPosition), "\x1b[%d;%dH", (uiData.cursorRow - uiData.uiOffsetRow) + 1, (uiData.cursorColumn - uiData.uiOffsetColumn) + 1);
@@ -300,6 +315,14 @@ void uiRefreshScreen() {
 
 	write(STDOUT_FILENO, bufferScreen.characters, bufferScreen.length);
 	stringBufferFree(&bufferScreen);
+}
+
+void uiSetStatusMessage(const char *message, ...) {
+	va_list arguments;									/* extra argument List */
+	va_start(arguments, message);
+	vsnprintf(uiData.statusMessage, sizeof(uiData.statusMessage), message, arguments);
+	va_end(arguments);
+	uiData.statusMessageTime = time(NULL);
 }
 
 /*** input ***/
@@ -389,8 +412,10 @@ void initUI() {
 	uiData.uiOffsetColumn = 0;
 	uiData.amountRows = 0;
 	uiData.uiRow = NULL;
+	uiData.statusMessage[0] = '\0';
+	uiData.statusMessageTime = 0;
 	if (getScreenSize(&uiData.screenRows, &uiData.screenColumns) == -1) die("getScreenSize");
-	uiData.screenRows -= 1;
+	uiData.screenRows -= 2;		/* Status Bar + Message Bar */
 }
 
 int main() {
@@ -398,6 +423,7 @@ int main() {
 	initUI();
 	uiOpen();
 
+	uiSetStatusMessage("q: exit");
 	while (1) {
 		uiRefreshScreen();
 		uiProcessKeyPress();
