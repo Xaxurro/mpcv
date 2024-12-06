@@ -326,12 +326,12 @@ void uiMovePage(int key) {
 
 void songPlay() {
 	int songIndex = config.cursorRow + 1;
-	char songIndexString[9];
+	char songIndexString[12];
 	sprintf(songIndexString, "%d", songIndex);
 
 	struct stringBuffer bufferCommand = STRING_BUFFER_INITIAL;
-	stringBufferConcat(&bufferCommand, "mpc play ", 9);		/* Hides cursor */
-	stringBufferConcat(&bufferCommand, songIndexString, 9);		/* Hides cursor */
+	stringBufferConcat(&bufferCommand, "mpc play ", 9);		/* Command to execute */
+	stringBufferConcat(&bufferCommand, songIndexString, sizeof(songIndexString));		/* Append index of song to play */
 
 	FILE *filePipe = popen(bufferCommand.characters, "r");
 
