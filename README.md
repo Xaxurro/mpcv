@@ -19,5 +19,7 @@ use `make` to generate the binary, and then do whatever you want with it, put it
 ## "Search" Mode
 
 `ESC`: Quit
+
 `Arrows`: Search Foward / Backwards
+
 `Enter`: Confirm Search
