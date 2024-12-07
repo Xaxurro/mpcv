@@ -60,7 +60,7 @@ struct uiDataStruct uiData;
 /*** function declaration ***/
 void uiSetStatusMessage(const char *message, ...);
 void uiRefreshScreen();
-char *editorPrompt(char *prompt);
+char *uiPrompt(char *prompt);
 
 /*** terminal ***/
 void die(const char *string) {
@@ -150,6 +150,20 @@ int uiReadKey() {
 	return ESCAPE;
 }
 
+int uiReadKeyRaw() {
+	int nread;
+	char key;
+	while ((nread = read(STDIN_FILENO, &key, 1)) != 1) {
+		if (nread == -1 && errno != EAGAIN) die("read");
+	}
+
+	if (key != ESCAPE) {
+		return key;
+	}
+
+	return ESCAPE;
+}
+
 int getCursorPosition(int *rows, int *cols) {
 	if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1;
 
@@ -232,7 +246,7 @@ void uiOpen() {
 
 /*** search ***/
 void songSearch() {
-	char *query = editorPrompt("Search: %s (ESC to cancel)");
+	char *query = uiPrompt("Search: %s (ESC to cancel)");
 	if (query == NULL) return;
 
 	int index;
@@ -376,7 +390,7 @@ void uiSetStatusMessage(const char *message, ...) {
 
 /*** input ***/
 
-char *editorPrompt(char *prompt) {
+char *uiPrompt(char *prompt) {
 	size_t bufferLengthMax = 128;
 	char *buffer = malloc(bufferLengthMax);
 
@@ -387,7 +401,7 @@ char *editorPrompt(char *prompt) {
 		uiSetStatusMessage(prompt, buffer);
 		uiRefreshScreen();
 
-		int character = uiReadKey();
+		int character = uiReadKeyRaw();
 		if (character == BACKSPACE) {
 			if (bufferLength != 0) buffer[bufferLength--] = '\0';
 		} else if (character == '\x1b') {				/* If user pressed Escape */
