@@ -29,8 +29,9 @@ enum COMMANDS {
 	MOVE_RIGHT =	 1003,
 	MOVE_PAGE_UP =	 1004,
 	MOVE_PAGE_DOWN = 1005,
-	SONG_PLAY =	 1006,
-	SONG_SEARCH =	 1007,
+	SONG_PLAY =	 1010,
+	SONG_REPEAT =	 1011,
+	SONG_SEARCH =	 1020,
 };
 
 /*** data ***/
@@ -125,6 +126,7 @@ int uiReadKey() {
 		case CTRL_KEY('b'): return MOVE_PAGE_UP;
 		case CTRL_KEY('f'): return MOVE_PAGE_DOWN;
 		case 'p': return SONG_PLAY;
+		case 'r': return SONG_REPEAT;
 		case '/': return SONG_SEARCH;
 	}
 
@@ -239,14 +241,14 @@ void uiAppendRow(char *string, size_t length) {
 
 /*** music management ***/
 void uiOpen() {
-	FILE *filePipe = popen("mpc listall", "r");
-	if (!filePipe) die("popen");
+	FILE *commandPipe = popen("mpc listall", "r");
+	if (!commandPipe) die("popen");
 
 	char *line = NULL;
 	size_t lineCap = 0;
 	ssize_t lineLength;
 
-	while ((lineLength = getline(&line, &lineCap, filePipe)) != -1) {					/* Read until EOF */
+	while ((lineLength = getline(&line, &lineCap, commandPipe)) != -1) {					/* Read until EOF */
 		while (lineLength > 0 && (line[lineLength - 1] == '\n' || line[lineLength - 1] == '\r')) {	/* Removes Carriage Return */
 			lineLength--;
 		}
@@ -254,7 +256,7 @@ void uiOpen() {
 	}
 
 	free(line);
-	pclose(filePipe);
+	pclose(commandPipe);
 }
 
 /*** search ***/
@@ -364,14 +366,14 @@ void uiWriteStatusBar(struct stringBuffer *buffer) {
 
 	stringBufferConcat(buffer, status, length);
 
-	FILE *filePipe = popen("mpc current", "r");
-	if (filePipe == NULL) die("mpc current pipe");
+	FILE *commandPipe = popen("mpc current", "r");
+	if (commandPipe == NULL) die("mpc current pipe");
 
 	char *currentSong = NULL;
 	size_t bufferSize = 0;
 	ssize_t lineLength;
 
-	if ((lineLength = getline(&currentSong, &bufferSize, filePipe)) != -1) {					/* Read until EOF */
+	if ((lineLength = getline(&currentSong, &bufferSize, commandPipe)) != -1) {					/* Read until EOF */
 		currentSong[strlen(currentSong) - 1] = '\0';
 		stringBufferConcat(buffer, currentSong, strlen(currentSong));
 	} else {
@@ -379,7 +381,7 @@ void uiWriteStatusBar(struct stringBuffer *buffer) {
 	}
 
 	free(currentSong);
-	pclose(filePipe);
+	pclose(commandPipe);
 
 	while(length < uiData.screenColumns) {
 		stringBufferConcat(buffer, " ", 1);
@@ -533,6 +535,12 @@ void uiMovePage(int key) {
 	}
 }
 
+void songRepeat() {
+	FILE *commandPipe = popen("mpc repeat", "r");
+	if (!commandPipe) die("mpc repeat");
+	pclose(commandPipe);
+}
+
 void songPlay() {
 	int songIndex = uiData.cursorRow + 1;
 	char songIndexString[12];
@@ -542,11 +550,11 @@ void songPlay() {
 	stringBufferConcat(&bufferCommand, "mpc play ", 9);		/* Command to execute */
 	stringBufferConcat(&bufferCommand, songIndexString, sizeof(songIndexString));		/* Append index of song to play */
 
-	FILE *filePipe = popen(bufferCommand.characters, "r");
+	FILE *commandPipe = popen(bufferCommand.characters, "r");
 
 	stringBufferFree(&bufferCommand);
-	if (!filePipe) die("popen");
-	pclose(filePipe);
+	if (!commandPipe) die("popen");
+	pclose(commandPipe);
 }
 
 char uiProcessKeyPress() {
@@ -567,6 +575,9 @@ char uiProcessKeyPress() {
 			break;
 		case SONG_PLAY:
 			songPlay();
+			break;
+		case SONG_REPEAT:
+			songRepeat();
 			break;
 		case SONG_SEARCH:
 			songSearch();
