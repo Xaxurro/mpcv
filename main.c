@@ -262,10 +262,20 @@ void songSearchCallback(char *query, int key) {
 }
 
 void songSearch() {
+	int originalCursorRow = uiData.cursorRow;
+	int originalCursorColumn = uiData.cursorColumn;
+	int originalOffsetRow = uiData.uiOffsetRow;
+	int originalOffsetColumn = uiData.uiOffsetColumn;
+
 	char *query = uiPrompt("Search: %s (ESC to cancel)", songSearchCallback);
 
 	if (query) {
 		free(query);
+	} else {
+		uiData.cursorRow = originalCursorRow ;
+		uiData.cursorColumn = originalCursorColumn;
+		uiData.uiOffsetRow = originalOffsetRow;
+		uiData.uiOffsetColumn = originalOffsetColumn;
 	}
 }
 
