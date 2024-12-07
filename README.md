@@ -9,8 +9,11 @@ use `make` to generate the binary, and then do whatever you want with it, put it
 ## "Normal" Mode
 
 `h/j/k/l`: Left/Down/Up/Right
+
 `Arrows`: As expected
+
 `/`: Search
+
 `p`: Play song on cursor
 
 ## "Search" Mode
