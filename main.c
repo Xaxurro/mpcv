@@ -161,6 +161,19 @@ int uiReadKeyRaw() {
 		return key;
 	}
 
+	char sequence[3];
+
+	if (read(STDIN_FILENO, &sequence[0], 1) != 1) return ESCAPE;
+	if (read(STDIN_FILENO, &sequence[1], 1) != 1) return ESCAPE;
+
+	if (sequence[0] == '[') {
+		switch (sequence[1]) {
+			case 'D': return MOVE_LEFT;
+			case 'B': return MOVE_DOWN;
+			case 'A': return MOVE_UP;
+			case 'C': return MOVE_RIGHT;
+		}
+	}
 	return ESCAPE;
 }
 
@@ -246,14 +259,35 @@ void uiOpen() {
 
 /*** search ***/
 void songSearchCallback(char *query, int key) {
-	if (key == '\r' || key == ESCAPE) return;
+	static int lastMatch = -1;
+	static int direction = 1;
 
+	if (key == '\r' || key == ESCAPE) {					/* Quit Search, default values */
+		lastMatch = -1;
+		direction = 1;
+		return;
+	} else if (key == MOVE_UP || key == MOVE_LEFT) {			/* Go Up */
+		direction = -1;
+	} else if (key == MOVE_DOWN || key == MOVE_RIGHT) {			/* Go Down */
+		direction = 1;
+	} else {								/* New Search, default values */
+		lastMatch = -1;
+		direction = 1;
+	}
+
+	if (lastMatch == -1) direction = 1;
+	int currentRow = lastMatch;
 	int index;
 	for (index = 0; index < uiData.amountRows; index++) {
-		uiRow *row = &uiData.uiRow[index];
+		currentRow += direction;
+		if (currentRow == -1) currentRow = uiData.amountRows - 1;	/* If on start of file, go to EOF */
+		else if (currentRow == uiData.amountRows) currentRow = 0;	/* If on EOF, go to the start */
+
+		uiRow *row = &uiData.uiRow[currentRow];
 		char *match = strstr(row->render, query);
 		if (match) {
-			uiData.cursorRow = index;
+			lastMatch = currentRow;
+			uiData.cursorRow = currentRow;
 			uiData.cursorColumn = match - row->render;
 			uiData.uiOffsetRow = uiData.amountRows;
 			break;
@@ -267,7 +301,7 @@ void songSearch() {
 	int originalOffsetRow = uiData.uiOffsetRow;
 	int originalOffsetColumn = uiData.uiOffsetColumn;
 
-	char *query = uiPrompt("Search: %s (ESC to cancel)", songSearchCallback);
+	char *query = uiPrompt("Search: %s (Can use ESC/ARROWS/ENTER)", songSearchCallback);
 
 	if (query) {
 		free(query);
