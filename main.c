@@ -313,7 +313,7 @@ void songSearch() {
 	}
 }
 
-/*** append buffer ***/
+/*** string buffer ***/
 struct stringBuffer {
 	char *characters;
 	int length;
@@ -355,13 +355,31 @@ void uiScroll() {
 void uiWriteStatusBar(struct stringBuffer *buffer) {
 	stringBufferConcat(buffer, "\x1b[7m", 4);	/* Invert Colors */
 
-	char status[80];
+	char status[uiData.screenColumns - 1];
 
-	int length = snprintf(status, sizeof(status), "%d songs", uiData.amountRows);
+	int length = snprintf(status, sizeof(status), "%d songs - Currently Playing: ", uiData.amountRows);
 	if (length > uiData.screenColumns) {
 		length = uiData.screenColumns;
 	}
+
 	stringBufferConcat(buffer, status, length);
+
+	FILE *filePipe = popen("mpc current", "r");
+	if (filePipe == NULL) die("mpc current pipe");
+
+	char *currentSong = NULL;
+	size_t bufferSize = 0;
+	ssize_t lineLength;
+
+	if ((lineLength = getline(&currentSong, &bufferSize, filePipe)) != -1) {					/* Read until EOF */
+		currentSong[strlen(currentSong) - 1] = '\0';
+		stringBufferConcat(buffer, currentSong, strlen(currentSong));
+	} else {
+		stringBufferConcat(buffer, "[None]", 6);
+	}
+
+	free(currentSong);
+	pclose(filePipe);
 
 	while(length < uiData.screenColumns) {
 		stringBufferConcat(buffer, " ", 1);
