@@ -18,9 +18,11 @@
 /*** defines ***/
 #define CTRL_KEY(key) ((key) & 0x1f)
 #define ESCAPE '\x1b'
+#define DEFAULT_TIME_MESSAGE 5
 
 enum COMMANDS {
 	EXIT =		 9999,
+	BACKSPACE =	 127,
 	MOVE_LEFT =	 1000,
 	MOVE_DOWN =	 1001,
 	MOVE_UP =	 1002,
@@ -28,12 +30,15 @@ enum COMMANDS {
 	MOVE_PAGE_UP =	 1004,
 	MOVE_PAGE_DOWN = 1005,
 	SONG_PLAY =	 1006,
+	SONG_SEARCH =	 1007,
 };
 
 /*** data ***/
 typedef struct uiRow {
 	int length;
+	int renderLength;
 	char *characters;
+	char *render;
 } uiRow;
 
 struct uiDataStruct {
@@ -51,6 +56,11 @@ struct uiDataStruct {
 };
 
 struct uiDataStruct uiData;
+
+/*** function declaration ***/
+void uiSetStatusMessage(const char *message, ...);
+void uiRefreshScreen();
+char *editorPrompt(char *prompt);
 
 /*** terminal ***/
 void die(const char *string) {
@@ -115,6 +125,7 @@ int uiReadKey() {
 		case CTRL_KEY('b'): return MOVE_PAGE_UP;
 		case CTRL_KEY('f'): return MOVE_PAGE_DOWN;
 		case 'p': return SONG_PLAY;
+		case '/': return SONG_SEARCH;
 	}
 
 	/* If is a escape sequence */
@@ -170,6 +181,19 @@ int getScreenSize(int *rows, int *cols) {
 }
 
 /*** row operations ***/
+void uiUpdateRow(uiRow *row) {
+	free(row->render);
+	row->render = malloc(row->length + 1);
+	
+	int iterator;
+	int index = 0;
+	for (iterator = 0; iterator < row->length; iterator++) {	/* Copy chars */
+		row->render[index++] = row->characters[iterator];
+	}
+	row->render[index] = '\0';
+	row->renderLength = index;
+}
+
 void uiAppendRow(char *string, size_t length) {
 	uiData.uiRow = realloc(uiData.uiRow, sizeof(uiRow) * (uiData.amountRows + 1));
 
@@ -178,6 +202,11 @@ void uiAppendRow(char *string, size_t length) {
 	uiData.uiRow[currentRow].characters = malloc(length + 1);
 	memcpy(uiData.uiRow[currentRow].characters, string, length);
 	uiData.uiRow[currentRow].characters[length] = '\0';
+
+	uiData.uiRow[currentRow].renderLength = 0;
+	uiData.uiRow[currentRow].render = NULL;
+	uiUpdateRow(&uiData.uiRow[currentRow]);
+
 	uiData.amountRows++;
 }
 
@@ -199,6 +228,26 @@ void uiOpen() {
 
 	free(line);
 	pclose(filePipe);
+}
+
+/*** search ***/
+void songSearch() {
+	char *query = editorPrompt("Search: %s (ESC to cancel)");
+	if (query == NULL) return;
+
+	int index;
+	for (index = 0; index < uiData.amountRows; index++) {
+		uiRow *row = &uiData.uiRow[index];
+		char *match = strstr(row->render, query);
+		if (match) {
+			uiData.cursorRow = index;
+			uiData.cursorColumn = match - row->render;
+			uiData.uiOffsetRow = uiData.amountRows;
+			break;
+		}
+	}
+
+	free(query);
 }
 
 /*** append buffer ***/
@@ -240,18 +289,6 @@ void uiScroll() {
 	}
 }
 
-void uiWriteLineEmpty(struct stringBuffer *buffer) {
-	stringBufferConcat(buffer, "~", 1);
-}
-
-void uiWriteLine(struct stringBuffer *buffer, int index) {
-	int length = uiData.uiRow[index].length - uiData.uiOffsetColumn;	/* Offset for horziontal Scrolling */
-	if (length < 0) length = 0;
-	if (length > uiData.screenColumns) length = uiData.screenColumns;
-	stringBufferConcat(buffer, "  ", 2);					/* Padding */
-	stringBufferConcat(buffer, &uiData.uiRow[index].characters[uiData.uiOffsetColumn], length);
-}
-
 void uiWriteStatusBar(struct stringBuffer *buffer) {
 	stringBufferConcat(buffer, "\x1b[7m", 4);	/* Invert Colors */
 
@@ -276,9 +313,21 @@ void uiWriteMessageBar(struct stringBuffer *buffer) {
 	stringBufferConcat(buffer, "\x1b[K]", 3);	/* Clear -ONLY- the message bar */
 	int messageLength = strlen(uiData.statusMessage);
 	if (messageLength > uiData.screenColumns) messageLength = uiData.screenColumns;
-	if (messageLength && time(NULL) - uiData.statusMessageTime < 5) {
+	if (messageLength && time(NULL) - uiData.statusMessageTime < DEFAULT_TIME_MESSAGE) {
 		stringBufferConcat(buffer, uiData.statusMessage, messageLength);
 	}
+}
+
+void uiWriteLineEmpty(struct stringBuffer *buffer) {
+	stringBufferConcat(buffer, "~", 1);
+}
+
+void uiWriteLine(struct stringBuffer *buffer, int index) {
+	int length = uiData.uiRow[index].renderLength - uiData.uiOffsetColumn;	/* Offset for horziontal Scrolling */
+	if (length < 0) length = 0;
+	if (length > uiData.screenColumns) length = uiData.screenColumns;
+	stringBufferConcat(buffer, "  ", 2);					/* Padding */
+	stringBufferConcat(buffer, &uiData.uiRow[index].render[uiData.uiOffsetColumn], length);
 }
 
 void uiWriteRows(struct stringBuffer *buffer) {					/* TODO Change thename of variables, it's awful */
@@ -326,6 +375,41 @@ void uiSetStatusMessage(const char *message, ...) {
 }
 
 /*** input ***/
+
+char *editorPrompt(char *prompt) {
+	size_t bufferLengthMax = 128;
+	char *buffer = malloc(bufferLengthMax);
+
+	size_t bufferLength = 0;
+	buffer[0] = '\0';
+
+	while (1) {
+		uiSetStatusMessage(prompt, buffer);
+		uiRefreshScreen();
+
+		int character = uiReadKey();
+		if (character == BACKSPACE) {
+			if (bufferLength != 0) buffer[bufferLength--] = '\0';
+		} else if (character == '\x1b') {				/* If user pressed Escape */
+			uiSetStatusMessage("");
+			free(buffer);
+			return NULL;
+		} else if (character == '\r') {					/* If user pressed Enter */
+			if (bufferLength != 0) {				/* and there is something to write */
+				uiSetStatusMessage("");
+				return buffer;
+			}
+		} else if (!iscntrl(character) && character < 128) {		/* Is a printable character */
+			if (bufferLength == bufferLengthMax - 1) {
+				bufferLengthMax *= 2;
+				buffer = realloc(buffer, bufferLengthMax);
+			}
+			buffer[bufferLength++] = character;
+			buffer[bufferLength] = '\0';
+		}
+	}
+}
+
 void uiMoveCursor(int key) {
 	switch (key) {
 		case MOVE_LEFT:
@@ -399,6 +483,9 @@ char uiProcessKeyPress() {
 			break;
 		case SONG_PLAY:
 			songPlay();
+			break;
+		case SONG_SEARCH:
+			songSearch();
 			break;
 	}
 	return key;
