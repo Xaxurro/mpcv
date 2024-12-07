@@ -60,7 +60,7 @@ struct uiDataStruct uiData;
 /*** function declaration ***/
 void uiSetStatusMessage(const char *message, ...);
 void uiRefreshScreen();
-char *uiPrompt(char *prompt);
+char *uiPrompt(char *prompt, void (*callback)(char *, int));
 
 /*** terminal ***/
 void die(const char *string) {
@@ -245,9 +245,8 @@ void uiOpen() {
 }
 
 /*** search ***/
-void songSearch() {
-	char *query = uiPrompt("Search: %s (ESC to cancel)");
-	if (query == NULL) return;
+void songSearchCallback(char *query, int key) {
+	if (key == '\r' || key == ESCAPE) return;
 
 	int index;
 	for (index = 0; index < uiData.amountRows; index++) {
@@ -260,8 +259,14 @@ void songSearch() {
 			break;
 		}
 	}
+}
 
-	free(query);
+void songSearch() {
+	char *query = uiPrompt("Search: %s (ESC to cancel)", songSearchCallback);
+
+	if (query) {
+		free(query);
+	}
 }
 
 /*** append buffer ***/
@@ -390,7 +395,7 @@ void uiSetStatusMessage(const char *message, ...) {
 
 /*** input ***/
 
-char *uiPrompt(char *prompt) {
+char *uiPrompt(char *prompt, void (*callback)(char *, int)) {
 	size_t bufferLengthMax = 128;
 	char *buffer = malloc(bufferLengthMax);
 
@@ -406,11 +411,13 @@ char *uiPrompt(char *prompt) {
 			if (bufferLength != 0) buffer[bufferLength--] = '\0';
 		} else if (character == '\x1b') {				/* If user pressed Escape */
 			uiSetStatusMessage("");
+			if (callback) callback(buffer, character);
 			free(buffer);
 			return NULL;
 		} else if (character == '\r') {					/* If user pressed Enter */
 			if (bufferLength != 0) {				/* and there is something to write */
 				uiSetStatusMessage("");
+				if (callback) callback(buffer, character);
 				return buffer;
 			}
 		} else if (!iscntrl(character) && character < 128) {		/* Is a printable character */
@@ -421,6 +428,7 @@ char *uiPrompt(char *prompt) {
 			buffer[bufferLength++] = character;
 			buffer[bufferLength] = '\0';
 		}
+		if (callback) callback(buffer, character);
 	}
 }
 
